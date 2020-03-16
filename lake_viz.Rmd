@@ -81,12 +81,14 @@ temp <- lake_date %>%
 
 temp_1m <- temp %>% 
   filter(depth_m %in% 1.0,
-         month %in% c(5, 6, 7, 8, 9)) %>% 
+         month %in% c(5, 6, 7, 8, 9),
+         year %in% 2018) %>% 
   mutate(lake_name = as.factor(lake_name))
 
 temp_5m <- temp %>% 
   filter(depth_m %in% 5.0,
-         month %in% c(5, 6, 7, 8, 9)) %>% 
+         month %in% c(5, 6, 7, 8, 9),
+         year %in% 2018) %>% 
   mutate(lake_name = as.factor(lake_name))
 
 temp_10m <- temp %>% 
@@ -100,7 +102,7 @@ temp_20m <- temp %>%
   mutate(lake_name = as.factor(lake_name))
 
 
-t_plot_1m <- ggplot(data = temp_5m, 
+t_plot_1m <- ggplot(data = temp_1m, 
        aes(x = fct_reorder(lake_name, month), 
            y = temp_c, 
            group = lake_name)) + 
@@ -109,27 +111,32 @@ t_plot_1m <- ggplot(data = temp_5m,
   coord_flip() +
   theme_bw() +
   labs(y = "Temp (ºC)", x = "", color = "")
+
+t_plot_1m
 
 t_plot_5m <- ggplot(data = temp_5m, 
        aes(x = fct_reorder(lake_name, month), 
            y = temp_c, 
            group = lake_name)) + 
-  geom_jitter(aes(color = as.factor(year)),
+  geom_jitter(aes(color = lake_name),
              alpha = 0.6) +
   coord_flip() +
   theme_bw() +
   labs(y = "Temp (ºC)", x = "", color = "")
 
+t_plot_5m
 
-t_plot_10m <- ggplot(data = temp_10m, 
-       aes(x = fct_reorder(lake_name, month), 
-           y = temp_c, 
-           group = lake_name)) + 
-  geom_jitter(aes(color = as.factor(year)),
-             alpha = 0.6) +
-  coord_flip() +
-  theme_bw() +
-  labs(y = "Temp (ºC)", x = "", color = "")
+ggsave(here::here("figures", "5m_temp.png"), plot = t_plot_5m)
+
+# t_plot_10m <- ggplot(data = temp_10m, 
+#        aes(x = fct_reorder(lake_name, month), 
+#            y = temp_c, 
+#            group = lake_name)) + 
+#   geom_jitter(aes(color = as.factor(year)),
+#              alpha = 0.6) +
+#   coord_flip() +
+#   theme_bw() +
+#   labs(y = "Temp (ºC)", x = "", color = ""))
 
 
 t_plot_20m <- ggplot(data = temp_20m, 
@@ -156,12 +163,107 @@ ggsave(here::here("figures", "t_plot_20m.png"), plot = t_plot_20m)
 
 
 
+### Profiles
+
+```{r}
+# Temp profile
+
+emerald_profiles <- lake_date %>% 
+  filter(lake_name == "Emerald") %>% 
+  filter(depth_m == 1) %>% 
+  
+  #unique(emerald_profiles$coll_date)
+
+  filter(coll_date %in% c(unique(coll_date)[20], unique(coll_date)[21]))
+
+daily_1m <- ggplot(data = emerald_profiles, aes(x  = time_pst, y = temp_c, group = depth_m)) +
+  geom_point(color = "cyan4", size = 2) +
+  geom_smooth(color = "cyan3", se = FALSE) +
+  scale_y_continuous() +
+  scale_x_continuous(expand = c(0,0),
+                     breaks = c(30000, 40000, 50000,60000),
+                     labels = c("3 am", "9 am", "3pm", "9 pm")) +
+  theme_bw() +
+  labs(y = "Temp (ºC)", x = "Time") +
+  annotate("text", 
+           x = 34000, 
+           y = 21.4, 
+           label = "Temp (ºC)",
+           color = "cyan 4",
+           size = 6)
+  
+daily_1m
+
+
+# Chlorophyll Profile
+
+daily_1m_chl <- ggplot(data = emerald_profiles, aes(x  = time_pst, y = chl_a_ug_l, group = depth_m)) +
+  geom_smooth(color = "lightgreen", se = FALSE) +
+  geom_point(color = "forestgreen", size = 2) +
+  scale_y_continuous() +
+  scale_x_continuous(expand = c(0,0),
+                     breaks = c(30000, 40000, 50000,60000),
+                     labels = c("3 am", "9 am", "3pm", "9 pm")) +
+  theme_bw() +
+  labs(y = "Chlorophyll A (micrograms/L)", x = "Time") +
+  annotate("text", 
+           x = 30000, 
+           y = .44, 
+           label = "Chl-A",
+           color = "forestgreen",
+           size = 6)
+
+daily_1m_chl
+
+
+daily_cycles <- daily_1m + daily_1m_chl + plot_annotation(title = "Daily fluctuations in temperature and chlorophyll")
+
+ggsave(here::here("figures", "daily_cycles.png"), plot = daily_cycles) 
+
+
+```
+
+```{r}
+# And seasonally, too
+
+emerald_yearly <- lake_date %>% 
+  filter(lake_name %in% "Emerald") %>% 
+  filter(depth_m %in% 4) %>% 
+  filter(year %in% 2018)
+  
+  #unique(emerald_profiles$coll_date)
+
+yr_temp <- ggplot(data = emerald_yearly, aes(x = as_date(full_date), y = temp_c)) +
+  geom_smooth(color = "cyan3", se = FALSE) +
+  geom_point(color = "cyan4") +
+  theme_bw() +
+  scale_x_date(date_breaks = "2 month", date_labels = "%B") +
+  labs(x = "", y = "Temp(ºC)", title = "2018 Temperature")
+  
+
+yr_chl <- ggplot(data = emerald_yearly, aes(x = as_date(full_date), y = chl_a_ug_l)) +
+  geom_smooth(color = "lightgreen", se = FALSE) +
+  geom_point(color = "forestgreen") +
+  theme_bw() +
+  scale_y_continuous(limits = c(0, 1.5),
+                     expand = c(0,0)) +
+  scale_x_date(date_breaks = "2 month", date_labels = "%B") +
+  labs(x = "", y = "Chlorophyll-A (micrograms/L)", title = "2018 Chlorophyll-A")
+
+year_plot <- yr_temp + yr_chl
+
+year_plot
+
+ggsave(here::here("figures", "year_plot.png"), plot = year_plot)
+
+```
+
 
 
 
 
 # ----------------------------
-# ---------------------------
+# ----------------------------
 
 Spatial stuff
 ```{r}
@@ -382,12 +484,12 @@ elevation_plot <- ggplot() +
                      expand = c(0,0),
                      guide = guide_axis(n.dodge = 1)) +
   labs(y = "Elevation (m)", x = "") +
-
-  theme_bw()
+  theme_bw() +
+  theme(axis.text = element_text(size = 10))
 
 elevation_plot
 
-ggsave(here::here("figures", "elevation_plot.png"), plot = elevation_plot, width = 8, height = 4, units = "in")
+ggsave(here::here("figures", "elevation_plot.png"), plot = elevation_plot, width = 8, height = 5, units = "in")
 
 
 ```
