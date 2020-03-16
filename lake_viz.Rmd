@@ -1,0 +1,768 @@
+---
+title: "Preparing vizualisations for a lake story map"
+author: "Gabriel De La Rosa"
+date: "3/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# Install necessary packages:
+
+# For wrangling:
+library(tidyverse)
+library(here)
+library(janitor)
+library(lubridate)
+library(Stack)
+
+# For elevation data:
+
+library(elevatr)
+
+# For looking at missingness:
+library(naniar)
+
+# For graphing:
+library(gghighlight)
+library(lattice)
+library(patchwork)
+
+# For maps:
+library(sf)
+library(raster)
+library(rgdal)
+
+```
+
+```{r}
+# Read and explore data:
+
+lake_data <- read_csv(here::here("data", "03_DO_profiles_allSeasons_2017_2019.csv")) %>% 
+  clean_names() %>% 
+  dplyr::select(-date_time)
+  
+
+# Pull lake names...
+# lake_names <- unique(lake_data$lake_name)
+
+
+# gg_miss_var(lake_data) # Explore missingness, date_time is all NA. Let's remove that column. ^^
+
+# Let's deal with these dates using the lubridate package:
+
+lake_date <- lake_data %>% 
+  mutate(mdy_hms = str_c(coll_date, time_pst, sep = " ")) %>% 
+  mutate(full_date = lubridate::mdy_hms(mdy_hms)) %>% 
+  mutate(cal_date = lubridate::mdy(coll_date)) %>% 
+  mutate(year = lubridate::year(cal_date)) %>%
+  mutate(hms = lubridate::hms(time_pst)) %>% 
+  mutate(month = lubridate::month(cal_date)) %>% 
+  mutate(day = lubridate::day(cal_date)) %>% 
+  filter(lake_name %in% c("BigBird", "Boundary", "Castle", "Cliff", "Clyde", "CottonwoodSix", "Doris", "Dorothy", "Emerald", "Ireland", "Miller", "Pear", "Ruby", "Swamp", "Topaz"))
+
+
+# See when we visited these guys...
+lake_order <- lake_date %>% 
+  group_by(cal_date, lake_name) %>% 
+  summarize(mean = mean(depth_m))
+
+view(lake_order)
+
+
+```
+
+```{r}
+# Make some temp plots:
+
+temp <- lake_date %>% 
+  dplyr::select(lake_name, full_date, depth_m, temp_c, month, year)
+
+temp_1m <- temp %>% 
+  filter(depth_m %in% 1.0,
+         month %in% c(5, 6, 7, 8, 9)) %>% 
+  mutate(lake_name = as.factor(lake_name))
+
+temp_5m <- temp %>% 
+  filter(depth_m %in% 5.0,
+         month %in% c(5, 6, 7, 8, 9)) %>% 
+  mutate(lake_name = as.factor(lake_name))
+
+temp_10m <- temp %>% 
+  filter(depth_m %in% 10.0,
+         month %in% c(5, 6, 7, 8, 9)) %>% 
+  mutate(lake_name = as.factor(lake_name))
+
+temp_20m <- temp %>% 
+  filter(depth_m %in% 20.0,
+         month %in% c(5, 6, 7, 8, 9)) %>% 
+  mutate(lake_name = as.factor(lake_name))
+
+
+t_plot_1m <- ggplot(data = temp_5m, 
+       aes(x = fct_reorder(lake_name, month), 
+           y = temp_c, 
+           group = lake_name)) + 
+  geom_jitter(aes(color = as.factor(year)),
+             alpha = 0.6) +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Temp (ºC)", x = "", color = "")
+
+t_plot_5m <- ggplot(data = temp_5m, 
+       aes(x = fct_reorder(lake_name, month), 
+           y = temp_c, 
+           group = lake_name)) + 
+  geom_jitter(aes(color = as.factor(year)),
+             alpha = 0.6) +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Temp (ºC)", x = "", color = "")
+
+
+t_plot_10m <- ggplot(data = temp_10m, 
+       aes(x = fct_reorder(lake_name, month), 
+           y = temp_c, 
+           group = lake_name)) + 
+  geom_jitter(aes(color = as.factor(year)),
+             alpha = 0.6) +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Temp (ºC)", x = "", color = "")
+
+
+t_plot_20m <- ggplot(data = temp_20m, 
+       aes(x = fct_reorder(lake_name, month), 
+           y = temp_c, 
+           group = lake_name)) + 
+  geom_jitter(aes(color = as.factor(year)),
+             alpha = 0.6) +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Temp (ºC)", x = "", color = "")
+
+
+ggsave(here::here("figures", "t_plot_1m.png"), plot = t_plot_1m)
+
+ggsave(here::here("figures", "t_plot_5m.png"), plot = t_plot_5m)
+
+ggsave(here::here("figures", "t_plot_10m.png"), plot = t_plot_10m)
+
+ggsave(here::here("figures", "t_plot_20m.png"), plot = t_plot_20m)
+
+
+```
+
+
+
+
+
+
+
+# ----------------------------
+# ---------------------------
+
+Spatial stuff
+```{r}
+
+bigbird <- raster::raster(here::here("lake_rasters", "bigbird_clip", "dblbnd.adf"))
+bigbird_spdf <- as(bigbird, "SpatialPixelsDataFrame")
+bigbird_df <- as.data.frame(bigbird_spdf)
+
+bigbird_elev <- bigbird_spdf %>%
+  get_elev_point(src = "aws")
+bigbird_elev_df <- as.data.frame(bigbird_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "bigbird")
+
+##
+
+boundary <- raster::raster(here::here("lake_rasters", "boundary_fin", "dblbnd.adf"))
+boundary_spdf <- as(boundary, "SpatialPixelsDataFrame")
+boundary_df <- as.data.frame(boundary_spdf)
+
+boundary_elev <- boundary_spdf %>%
+  get_elev_point(src = "aws")
+boundary_elev_df <- as.data.frame(boundary_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "boundary")
+
+##
+
+castle <- raster::raster(here::here("lake_rasters", "castle_clip", "dblbnd.adf"))
+castle_spdf <- as(castle, "SpatialPixelsDataFrame")
+castle_df <- as.data.frame(castle_spdf)
+
+castle_elev <- castle_spdf %>%
+  get_elev_point(src = "aws")
+castle_elev_df <- as.data.frame(castle_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "castle")
+
+##
+
+cliff <- raster::raster(here::here("lake_rasters", "cliff_clip", "dblbnd.adf"))
+cliff_spdf <- as(cliff, "SpatialPixelsDataFrame")
+cliff_df <- as.data.frame(cliff_spdf)
+
+cliff_elev <- cliff_spdf %>%
+  get_elev_point(src = "aws")
+cliff_elev_df <- as.data.frame(cliff_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "cliff")
+
+##
+
+clyde <- raster::raster(here::here("lake_rasters", "clyde_rs_clip", "dblbnd.adf"))
+clyde_spdf <- as(clyde, "SpatialPixelsDataFrame")
+clyde_df <- as.data.frame(clyde_spdf)
+
+clyde_elev <- clyde_spdf %>%
+  get_elev_point(src = "aws")
+clyde_elev_df <- as.data.frame(clyde_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "clyde")
+
+##
+
+cottonwood6 <- raster::raster(here::here("lake_rasters", "cw6_clipped", "dblbnd.adf"))
+cottonwood6_spdf <- as(cottonwood6, "SpatialPixelsDataFrame")
+cottonwood6_df <- as.data.frame(cottonwood6_spdf)
+
+cottonwood_elev <- cottonwood6_spdf %>%
+  get_elev_point(src = "aws")
+cottonwood_elev_df <- as.data.frame(cottonwood_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "cottonwood")
+
+##
+
+doris <- raster::raster(here::here("lake_rasters", "doris_rsfinal", "dblbnd.adf"))
+doris_spdf <- as(doris, "SpatialPixelsDataFrame")
+doris_df <- as.data.frame(doris_spdf)
+
+doris_elev <- doris_spdf %>%
+  get_elev_point(src = "aws")
+doris_elev_df <- as.data.frame(doris_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "doris")
+
+##
+
+dorothy<- raster::raster(here::here("lake_rasters", "dorothy_clip", "dblbnd.adf"))
+dorothy_spdf <- as(dorothy, "SpatialPixelsDataFrame")
+dorothy_df <- as.data.frame(dorothy_spdf)
+
+dorothy_elev <- dorothy_spdf %>%
+  get_elev_point(src = "aws")
+dorothy_elev_df <- as.data.frame(dorothy_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "dorothy")
+
+##
+
+emerald <- raster::raster(here::here("lake_rasters", "emerald_clip", "dblbnd.adf"))
+emerald_spdf <- as(emerald, "SpatialPixelsDataFrame")
+emerald_df <- as.data.frame(emerald_spdf)
+
+emerald_elev <- emerald_spdf %>%
+  get_elev_point(src = "aws")
+emerald_elev_df <- as.data.frame(emerald_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "emerald")
+
+##
+
+ireland <- raster::raster(here::here("lake_rasters", "ireland_clip", "dblbnd.adf"))
+ireland_spdf <- as(ireland, "SpatialPixelsDataFrame")
+ireland_df <- as.data.frame(ireland_spdf)
+
+ireland_elev <- ireland_spdf %>%
+  get_elev_point(src = "aws")
+ireland_elev_df <- as.data.frame(ireland_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "ireland")
+
+##
+
+miller <- raster::raster(here::here("lake_rasters", "miller_clip", "dblbnd.adf"))
+miller_spdf <- as(miller, "SpatialPixelsDataFrame")
+miller_df <- as.data.frame(miller_spdf)
+
+miller_elev <- miller_spdf %>%
+  get_elev_point(src = "aws")
+miller_elev_df <- as.data.frame(miller_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "miller")
+
+##
+
+pear <- raster::raster(here::here("lake_rasters", "pear_clip", "dblbnd.adf"))
+pear_spdf <- as(pear, "SpatialPixelsDataFrame")
+pear_df <- as.data.frame(pear_spdf)
+
+pear_elev <- pear_spdf %>%
+  get_elev_point(src = "aws")
+pear_elev_df <- as.data.frame(pear_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "pear")
+
+##
+
+ruby <- raster::raster(here::here("lake_rasters", "ruby_clipped", "dblbnd.adf"))
+ruby_spdf <- as(ruby, "SpatialPixelsDataFrame")
+ruby_df <- as.data.frame(ruby_spdf)
+
+ruby_elev <- ruby_spdf %>%
+  get_elev_point(src = "aws")
+ruby_elev_df <- as.data.frame(ruby_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "ruby")
+
+##
+
+swamp <- raster::raster(here::here("lake_rasters", "swamp_clip", "dblbnd.adf"))
+swamp_spdf <- as(swamp, "SpatialPixelsDataFrame")
+swamp_df <- as.data.frame(swamp_spdf)
+
+swamp_elev <- swamp_spdf %>%
+  get_elev_point(src = "aws")
+swamp_elev_df <- as.data.frame(swamp_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "swamp")
+
+##
+
+topaz <- raster::raster(here::here("lake_rasters", "topaz_clip", "dblbnd.adf"))
+topaz_spdf <- as(topaz, "SpatialPixelsDataFrame")
+topaz_df <- as.data.frame(topaz_spdf)
+
+topaz_elev <- topaz_spdf %>%
+  get_elev_point(src = "aws")
+topaz_elev_df <- as.data.frame(topaz_elev) %>% 
+  summarize(elev_m = mean(elevation)) %>% 
+  mutate(lake = "topaz")
+
+```
+
+```{r}
+# Compile the elevation df:
+
+full_elev <- boundary_elev_df %>% 
+  full_join(castle_elev_df, by = c("elev_m", "lake")) %>% 
+  full_join(cliff_elev_df, by = c("elev_m", "lake")) %>% 
+  full_join(clyde_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(cottonwood_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(doris_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(dorothy_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(emerald_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(ireland_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(miller_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(pear_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(ruby_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(swamp_elev_df, by = c("elev_m", "lake")) %>%
+  full_join(topaz_elev_df, by = c("elev_m", "lake")) %>% 
+  arrange(elev_m)
+  
+
+elevation_plot <- ggplot() +
+  geom_segment(data = full_elev, aes(x = reorder(lake, elev_m), xend = lake, y = 0, yend = elev_m),
+               color = "cadetblue3",
+               size = 1.5) +
+  geom_point(data = full_elev, aes(y = elev_m, x = lake),
+             size = 3,
+             stroke = 2,
+             color = "cadetblue4",
+             fill = "antiquewhite1",
+             pch = 21,
+             ) +
+  scale_x_discrete(labels = c("Swamp", "Castle", "Cliff", "Doris", "Boundary", "Miller", "Clyde", "Emerald","Pear", "Topaz", "Ireland", "Dorothy", "Ruby  ", " Cottonwood6")) +
+  scale_y_continuous(limits = c(0, 4000),
+                     expand = c(0,0),
+                     guide = guide_axis(n.dodge = 1)) +
+  labs(y = "Elevation (m)", x = "") +
+
+  theme_bw()
+
+elevation_plot
+
+ggsave(here::here("figures", "elevation_plot.png"), plot = elevation_plot, width = 8, height = 4, units = "in")
+
+
+```
+
+
+
+```{r}
+
+bigbird_plot <- ggplot() +
+  geom_raster(data = bigbird_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+boundary_plot <- ggplot() +
+  geom_raster(data = boundary_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+castle_plot <- ggplot() +
+  geom_raster(data = castle_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan1", 
+                                  "cadetblue2", 
+                                  "cyan4", 
+                                  "darkblue", 
+                                  "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+cliff_plot <- ggplot() +
+  geom_raster(data = cliff_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan1", 
+                                  "cadetblue2", 
+                                  "cyan4", 
+                                  "darkblue", 
+                                  "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+clyde_plot <- ggplot() +
+  geom_raster(data = clyde_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan1", 
+                                  "cadetblue2", 
+                                  "cyan4", 
+                                  "darkblue", 
+                                  "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+cottonwood_plot <- ggplot() +
+  geom_raster(data = cottonwood6_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan1", 
+                                  "cadetblue2", 
+                                  "cyan4", 
+                                  "darkblue", 
+                                  "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+doris_plot <- ggplot() +
+  geom_raster(data = doris_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+dorothy_plot <- ggplot() +
+  geom_raster(data = dorothy_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                        name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+emerald_plot <- ggplot() +
+  geom_raster(data = emerald_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                        name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+ireland_plot <- ggplot() +
+  geom_raster(data = ireland_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+miller_plot <- ggplot() +
+  geom_raster(data = miller_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+  theme(legend.position = "none")
+
+pear_plot <- ggplot() +
+  geom_raster(data = pear_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+ruby_plot <- ggplot() +
+  geom_raster(data = ruby_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+swamp_plot <- ggplot() +
+  geom_raster(data = swamp_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none")
+
+topaz_plot <- ggplot() +
+  geom_raster(data = topaz_df, aes(x = x, y = y, fill = dblbnd),
+              interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan1", "cadetblue2", "cyan4", "darkblue", "black"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme(legend.position = "none") +
+  theme_void()
+```
+
+```{r}
+
+
+# bigbird_plot
+# boundary_plot
+# castle_plot
+# cliff_plot
+# clyde_plot
+# cottonwood_plot
+# doris_plot
+# dorothy_plot
+# emerald_plot
+# ireland_plot
+# miller_plot
+# pear_plot
+# ruby_plot
+# swamp_plot
+# topaz_plot
+
+
+
+whole_lake_plot <- bigbird_plot + boundary_plot + cliff_plot +
+                   clyde_plot + cottonwood_plot + doris_plot + dorothy_plot +
+                   emerald_plot + ireland_plot + miller_plot + pear_plot +
+                   ruby_plot + swamp_plot + topaz_plot + castle_plot + plot_layout(ncol = 5, nrow = 3, guides = "collect") & theme(legend.position = 'none') & coord_fixed()
+
+whole_lake_plot
+
+ggsave(here::here("figures", "lake_graphs.png"), whole_lake_plot)
+
+
+plot_legend <- bigbird_plot + theme(legend.position = 'right')
+
+ggsave(here::here("figures", "depth_legend_plot.png"), plot_legend)
+
+
+```
+
+```{r}
+# Size plot
+
+bigbird_size <- ggplot() +
+  geom_raster(data = bigbird_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+boundary_size <- ggplot() +
+  geom_raster(data = boundary_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+castle_size <- ggplot() +
+  geom_raster(data = castle_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan2",
+                                 
+                                  "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+cliff_size <- ggplot() +
+  geom_raster(data = cliff_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan2",
+                                  
+                                  "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+clyde_size <- ggplot() +
+  geom_raster(data = clyde_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan2",
+                                 
+                                  "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+cottonwood_size <- ggplot() +
+  geom_raster(data = cottonwood6_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan2",
+                                 
+                                  "cyan4"
+                                  ),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+doris_size <- ggplot() +
+  geom_raster(data = doris_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+dorothy_size <- ggplot() +
+  geom_raster(data = dorothy_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                        name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+emerald_size <- ggplot() +
+  geom_raster(data = emerald_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                        name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+ireland_size <- ggplot() +
+  geom_raster(data = ireland_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+miller_size <- ggplot() +
+  geom_raster(data = miller_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+  theme(legend.position = "none") +
+  coord_fixed()
+
+pear_size <- ggplot() +
+  geom_raster(data = pear_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+ruby_size <- ggplot() +
+  geom_raster(data = ruby_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+swamp_size <- ggplot() +
+  geom_raster(data = swamp_df, aes(x = x, y = y, fill = dblbnd),
+            interpolate = TRUE) +
+   scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme_void() +
+   theme(legend.position = "none") +
+  coord_fixed()
+
+topaz_size <- ggplot() +
+  geom_raster(data = topaz_df, aes(x = x, y = y, fill = dblbnd),
+              interpolate = TRUE) +
+  scale_fill_gradientn(colors = c("lightcyan2", "cyan4"),
+                       limits = c(0, 85),
+                       name = "Depth (m)") +
+  theme(legend.position = "none") +
+  theme_void() +
+  coord_fixed()
+```
+
+```{r}
+
+size_plot <- bigbird_size + boundary_size + cliff_size +
+                   clyde_size + cottonwood_size + doris_size + dorothy_size +
+                   emerald_size + ireland_size + miller_size + pear_size +
+                   ruby_size + swamp_size + topaz_size + castle_size + plot_layout(ncol = 5, nrow = 3, guides = "collect") & theme(legend.position = 'none') & coord_fixed()
+
+size_plot
+
+ggsave(here::here("figures", "size_plot.png"), size_plot)
+
+
+```
+
+
